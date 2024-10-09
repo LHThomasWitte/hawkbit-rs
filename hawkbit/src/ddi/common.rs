@@ -38,6 +38,10 @@ pub enum Execution {
     Rejected,
     /// This can be used by the target to inform that it continued to work on the action.
     Resumed,
+    /// This can be used to inform the server that the target finished downloading the artifact.
+    Downloaded,
+    /// This can be used to inform the server that the target is downloading the artifact.
+    Download,
 }
 
 #[derive(Debug, Serialize)]

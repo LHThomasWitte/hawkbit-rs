@@ -18,6 +18,7 @@ mod client;
 mod common;
 mod config_data;
 mod deployment_base;
+mod confirmation_base;
 mod feedback;
 mod poll;
 
@@ -29,5 +30,8 @@ pub use config_data::{ConfigRequest, Mode};
 pub use deployment_base::ChecksumType;
 pub use deployment_base::{
     Artifact, Chunk, DownloadedArtifact, MaintenanceWindow, Type, Update, UpdatePreFetch,
+};
+pub use confirmation_base::{
+    ConfirmationRequest,
 };
 pub use poll::Reply;

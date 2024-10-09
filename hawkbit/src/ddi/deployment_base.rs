@@ -53,12 +53,12 @@ struct Reply {
 }
 
 #[derive(Debug, Deserialize)]
-struct Deployment {
+pub(crate) struct Deployment {
     download: Type,
     update: Type,
     #[serde(rename = "maintenanceWindow")]
     maintenance_window: Option<MaintenanceWindow>,
-    chunks: Vec<ChunkInternal>,
+    pub(crate) chunks: Vec<ChunkInternal>,
 }
 
 /// How the download or update should be processed by the target.
@@ -84,7 +84,7 @@ pub enum MaintenanceWindow {
 }
 
 #[derive(Debug, Deserialize)]
-struct ChunkInternal {
+pub(crate) struct ChunkInternal {
     #[serde(default)]
     metadata: Vec<Metadata>,
     part: String,
@@ -320,7 +320,7 @@ pub struct Chunk<'a> {
 }
 
 impl<'a> Chunk<'a> {
-    fn new(chunk: &'a ChunkInternal, client: Client) -> Self {
+    pub(crate) fn new(chunk: &'a ChunkInternal, client: Client) -> Self {
         Self { chunk, client }
     }
 
