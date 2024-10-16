@@ -230,6 +230,11 @@ impl Update {
         Self { client, info, url }
     }
 
+    /// the action id of the current update.
+    pub fn action_id(&self) -> &str {
+        &self.info.id
+    }
+
     /// Handling for the download part of the provisioning process.
     pub fn download_type(&self) -> Type {
         self.info.deployment.download

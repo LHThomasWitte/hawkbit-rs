@@ -179,6 +179,7 @@ async fn deployment() {
     let update = reply.update().expect("missing update");
     let update = update.fetch().await.expect("failed to fetch update info");
     assert_eq!(target.deployment_hits(), 1);
+    assert_eq!(update.action_id(), "10");
     assert_eq!(update.download_type(), Type::Forced);
     assert_eq!(update.update_type(), Type::Attempt);
     assert_eq!(
@@ -275,6 +276,7 @@ async fn resume_download() {
     let update = reply.update().expect("missing update");
     let update = update.fetch().await.expect("failed to fetch update info");
     assert_eq!(target.deployment_hits(), 1);
+    assert_eq!(update.action_id(), "10");
     assert_eq!(update.download_type(), Type::Forced);
     assert_eq!(update.update_type(), Type::Attempt);
     assert_eq!(
