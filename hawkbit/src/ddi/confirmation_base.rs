@@ -69,12 +69,12 @@ impl ConfirmationRequest {
     }
 
     /// Fetch the details of the update to be confirmed
-    async fn update_info(&self) -> Result<Reply, Error> {
+    pub async fn update_info(&self) -> Result<ConfirmationInfo, Error> {
         let reply = self.client.get(&self.url).send().await?;
         reply.error_for_status_ref()?;
 
         let reply: Reply = reply.json().await?;
-        Ok(reply)
+        Ok(ConfirmationInfo {reply, client: self.client.clone()})
     }
 
     /// The metadata of all chunks of the update.
@@ -82,7 +82,7 @@ impl ConfirmationRequest {
         let client = self.client.clone();
 
         // get update information from the server
-        let update = self.update_info().await?;
+        let update = self.update_info().await?.reply;
 
         // get all chunks of the update
         let chunks: Vec<Chunk> = update
@@ -101,6 +101,42 @@ impl ConfirmationRequest {
             .collect();
 
         Ok(metadata)
+    }
+}
+
+/// The downloaded details of a confirmation request.
+#[derive(Debug)]
+pub struct ConfirmationInfo {
+    client: Client,
+    reply: Reply,
+}
+
+impl ConfirmationInfo {
+    /// Get all metadata of all chunks of the update.
+    pub fn metadata(&self) -> Vec<(String, String)> {
+        // get all chunks of the update
+        let chunks: Vec<Chunk> = self
+            .reply
+            .confirmation
+            .chunks
+            .iter()
+            .map(move |c| Chunk::new(c, self.client.clone()))
+            .collect();
+
+        // collect all metadata of each chunk
+        let metadata = chunks
+            .iter()
+            .map(|c| c.metadata().collect::<Vec<(&str, &str)>>())
+            .flatten()
+            .map(|(k, v): (&str, &str)| (k.to_string(), v.to_string()))
+            .collect();
+
+        metadata
+    }
+
+    /// Get the action ID of the update to be confirmed.
+    pub fn action_id(&self) -> &str {
+        &self.reply.id
     }
 }
 
