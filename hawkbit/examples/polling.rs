@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use hawkbit::ddi::{Client, Execution, Finished};
+use hawkbit::ddi::{Client, Execution, Finished, ClientAuthorization};
 use serde::Serialize;
 use structopt::StructOpt;
 use tokio::time::sleep;
@@ -29,7 +29,8 @@ pub(crate) struct ConfigData {
 async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
-    let ddi = Client::new(&opt.url, &opt.tenant, &opt.controller, &opt.key)?;
+    let auth = ClientAuthorization::TargetToken(opt.key);
+    let ddi = Client::new(&opt.url, &opt.tenant, &opt.controller, auth)?;
 
     loop {
         let reply = ddi.poll().await?;

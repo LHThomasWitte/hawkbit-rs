@@ -15,6 +15,17 @@ pub struct Client {
     client: reqwest::Client,
 }
 
+/// The method of Authorization for the client and the secret authentification token.
+#[derive(Debug, Clone)]
+pub enum ClientAuthorization {
+    /// use a target token that is unique per target
+    TargetToken(String),
+    /// use a common gateway token for all targets
+    GatewayToken(String),
+    /// do not send an authorization header
+    None,
+}
+
 /// DDI errors
 #[non_exhaustive]
 #[derive(Error, Debug)]
@@ -26,7 +37,7 @@ pub enum Error {
     #[error("Invalid token format")]
     InvalidToken(#[from] reqwest::header::InvalidHeaderValue),
     /// HTTP error
-    #[error("Failed to process request")]
+    #[error(transparent)]
     ReqwestError(#[from] reqwest::Error),
     /// Error parsing sleep field from server
     #[error("Failed to parse polling sleep")]
@@ -47,23 +58,36 @@ impl Client {
     /// * `url`: the URL of the hawkBit server, such as `http://my-server.com:8080`
     /// * `tenant`: the server tenant
     /// * `controller_id`: the id of the controller
-    /// * `key_token`: the secret authentification token of the controller
+    /// * `authorization`: the authorization method and secret authentification token of the controller
     pub fn new(
         url: &str,
         tenant: &str,
         controller_id: &str,
-        key_token: &str,
+        authorization: ClientAuthorization,
     ) -> Result<Self, Error> {
         let host: Url = url.parse()?;
         let path = format!("{}/controller/v1/{}", tenant, controller_id);
         let base_url = host.join(&path)?;
 
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            format!("TargetToken {}", key_token).try_into()?,
-        );
-
+        match authorization {
+            ClientAuthorization::TargetToken(key_token) => {
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("TargetToken {}", &key_token).try_into()?,
+                );
+            },
+            ClientAuthorization::GatewayToken(key_token) => {
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("GatewayToken {}", &key_token).try_into()?,
+                );
+            },
+            ClientAuthorization::None => {
+                // no authorization header needed
+            },
+        }
+        
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()?;

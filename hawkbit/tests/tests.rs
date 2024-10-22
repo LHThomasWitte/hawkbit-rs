@@ -29,7 +29,7 @@ fn add_target(server: &Server, name: &str) -> (Client, Target) {
         &server.base_url(),
         &server.tenant,
         &target.name,
-        &target.key,
+        ClientAuthorization::TargetToken(target.key.clone()),
     )
     .expect("DDI creation failed");
 
