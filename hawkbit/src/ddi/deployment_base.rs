@@ -538,8 +538,8 @@ cfg_if::cfg_if! {
         struct DownloadHasher<T>
         where
             T: Digest,
-            <T as Digest>::OutputSize: core::ops::Add,
-            <<T as Digest>::OutputSize as core::ops::Add>::Output: generic_array::ArrayLength<u8>,
+            <T as digest::OutputSizeUser>::OutputSize: core::ops::Add,
+            <<T as digest::OutputSizeUser>::OutputSize as core::ops::Add>::Output: digest::generic_array::ArrayLength<u8>
         {
             hasher: T,
             expected: String,
@@ -549,8 +549,8 @@ cfg_if::cfg_if! {
         impl<T> DownloadHasher<T>
         where
             T: Digest,
-            <T as Digest>::OutputSize: core::ops::Add,
-            <<T as Digest>::OutputSize as core::ops::Add>::Output: generic_array::ArrayLength<u8>
+            <T as digest::OutputSizeUser>::OutputSize: core::ops::Add,
+            <<T as digest::OutputSizeUser>::OutputSize as core::ops::Add>::Output: digest::generic_array::ArrayLength<u8>
         {
             fn update(&mut self, data: impl AsRef<[u8]>) {
                 self.hasher.update(data);
@@ -603,8 +603,8 @@ cfg_if::cfg_if! {
         struct DownloadStreamHash<T>
         where
             T: Digest,
-            <T as Digest>::OutputSize: core::ops::Add,
-            <<T as Digest>::OutputSize as core::ops::Add>::Output: generic_array::ArrayLength<u8>,
+            <T as digest::OutputSizeUser>::OutputSize: core::ops::Add,
+            <<T as digest::OutputSizeUser>::OutputSize as core::ops::Add>::Output: digest::generic_array::ArrayLength<u8>
         {
             stream: Box<dyn Stream<Item = Result<Bytes, Error>> + Unpin + Send + Sync>,
             hasher: DownloadHasher<T>,
@@ -613,8 +613,8 @@ cfg_if::cfg_if! {
         impl<T> Stream for DownloadStreamHash<T>
         where
             T: Digest,
-            <T as Digest>::OutputSize: core::ops::Add,
-            <<T as Digest>::OutputSize as core::ops::Add>::Output: generic_array::ArrayLength<u8>,
+            <T as digest::OutputSizeUser>::OutputSize: core::ops::Add,
+            <<T as digest::OutputSizeUser>::OutputSize as core::ops::Add>::Output: digest::generic_array::ArrayLength<u8>,
             T: Unpin,
             T: Clone,
         {
@@ -661,9 +661,10 @@ impl<'a> DownloadedArtifact {
     #[cfg(feature = "hash-digest")]
     async fn hash<T>(&self, mut hasher: DownloadHasher<T>) -> Result<(), Error>
     where
-        T: Digest,
-        <T as Digest>::OutputSize: core::ops::Add,
-        <<T as Digest>::OutputSize as core::ops::Add>::Output: generic_array::ArrayLength<u8>,
+        T: digest::Digest,
+        <T as digest::OutputSizeUser>::OutputSize: core::ops::Add,
+        <<T as digest::OutputSizeUser>::OutputSize as core::ops::Add>::Output:
+            digest::generic_array::ArrayLength<u8>,
     {
         use tokio::io::AsyncReadExt;
 
