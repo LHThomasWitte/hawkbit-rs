@@ -32,6 +32,6 @@ pub use deployment_base::{
     Artifact, Chunk, DownloadedArtifact, MaintenanceWindow, Type, Update, UpdatePreFetch,
 };
 pub use confirmation_base::{
-    ConfirmationRequest, ConfirmationInfo,
+    ConfirmationRequest, ConfirmationInfo, ConfirmationResponse,
 };
 pub use poll::Reply;

@@ -34,7 +34,7 @@ use httpmock::{
 };
 use serde_json::{json, Map, Value};
 
-use hawkbit::ddi::{Execution, Finished, MaintenanceWindow, Type};
+use hawkbit::ddi::{Execution, Finished, MaintenanceWindow, Type, ConfirmationResponse};
 
 /// Builder of [`Server`].
 ///
@@ -103,6 +103,7 @@ pub struct Target {
     tenant: String,
     poll: Cell<usize>,
     config_data: RefCell<Option<PendingAction>>,
+    confirmation: RefCell<Option<PendingAction>>,
     deployment: RefCell<Option<PendingAction>>,
     cancel_action: RefCell<Option<PendingAction>>,
 }
@@ -111,7 +112,7 @@ impl Target {
     fn new(name: &str, server: &Rc<MockServer>, tenant: &str) -> Self {
         let key = format!("Key{}", name);
 
-        let poll = Self::create_poll(server, tenant, name, &key, None, None, None);
+        let poll = Self::create_poll(server, tenant, name, &key, None, None, None, None);
         Target {
             name: name.to_string(),
             key,
@@ -119,6 +120,7 @@ impl Target {
             tenant: tenant.to_string(),
             poll: Cell::new(poll),
             config_data: RefCell::new(None),
+            confirmation: RefCell::new(None),
             deployment: RefCell::new(None),
             cancel_action: RefCell::new(None),
         }
@@ -131,6 +133,7 @@ impl Target {
         name: &str,
         key: &str,
         expected_config_data: Option<&PendingAction>,
+        confirmation: Option<&PendingAction>,
         deployment: Option<&PendingAction>,
         cancel_action: Option<&PendingAction>,
     ) -> usize {
@@ -138,6 +141,9 @@ impl Target {
 
         if let Some(pending) = expected_config_data {
             links.insert("configData".into(), json!({ "href": pending.path }));
+        }
+        if let Some(pending) = confirmation {
+            links.insert("confirmationBase".into(), json!({ "href": pending.path }));
         }
         if let Some(pending) = deployment {
             links.insert("deploymentBase".into(), json!({ "href": pending.path }));
@@ -175,6 +181,7 @@ impl Target {
             &self.name,
             &self.key,
             self.config_data.borrow().as_ref(),
+            self.confirmation.borrow().as_ref(),
             self.deployment.borrow().as_ref(),
             self.cancel_action.borrow().as_ref(),
         ));
@@ -272,48 +279,80 @@ impl Target {
     /// //assert_eq!(target.deployment_hits(), 1);
     /// ```
     pub fn push_deployment(&self, deploy: Deployment) {
-        let deploy_path = self.server.url(format!(
-            "/DEFAULT/controller/v1/{}/deploymentBase/{}",
-            self.name, deploy.id
-        ));
+        if deploy.confirmation_required {
+            let confirmation_path = self.server.url(format!(
+                "/DEFAULT/controller/v1/{}/confirmationBase/{}",
+                self.name, deploy.id
+            ));
 
-        let base_url = self.server.url("/download");
-        let response = deploy.json(&base_url);
+            let base_url = self.server.url("/download");
+            let response = deploy.json(&base_url);
 
-        let deploy_mock = self.server.mock(|when, then| {
-            when.method(GET)
-                .path(format!(
-                    "/DEFAULT/controller/v1/{}/deploymentBase/{}",
-                    self.name, deploy.id
-                ))
-                .header("Authorization", format!("TargetToken {}", self.key));
+            let confirmation_mock = self.server.mock(|when, then| {
+                when.method(GET)
+                    .path(format!(
+                        "/DEFAULT/controller/v1/{}/confirmationBase/{}",
+                        self.name, deploy.id
+                    ))
+                    .header("Authorization", format!("TargetToken {}", self.key));
 
-            then.status(200)
-                .header("Content-Type", "application/json")
-                .json_body(response);
-        });
+                then.status(200)
+                    .header("Content-Type", "application/json")
+                    .json_body(response);
+            });
 
-        // Serve the artifacts
-        for chunk in deploy.chunks.iter() {
-            for (artifact, _md5, _sha1, _sha256) in chunk.artifacts.iter() {
-                let file_name = artifact.file_name().unwrap().to_str().unwrap();
-                let path = format!("/download/{}", file_name);
+            self.deployment.replace(None);
+            self.confirmation.replace(Some(PendingAction {
+                server: self.server.clone(),
+                path: confirmation_path,
+                mock: confirmation_mock.id(),
+            }));
+        } else {
+            let deploy_path = self.server.url(format!(
+                "/DEFAULT/controller/v1/{}/deploymentBase/{}",
+                self.name, deploy.id
+            ));
 
-                self.server.mock(|when, then| {
-                    when.method(GET)
-                        .path(path)
-                        .header("Authorization", format!("TargetToken {}", self.key));
+            let base_url = self.server.url("/download");
+            let response = deploy.json(&base_url);
 
-                    then.status(200).body_from_file(artifact.to_str().unwrap());
-                });
+            let deploy_mock = self.server.mock(|when, then| {
+                when.method(GET)
+                    .path(format!(
+                        "/DEFAULT/controller/v1/{}/deploymentBase/{}",
+                        self.name, deploy.id
+                    ))
+                    .header("Authorization", &format!("TargetToken {}", self.key));
+
+                then.status(200)
+                    .header("Content-Type", "application/json")
+                    .json_body(response);
+            });
+
+            // Serve the artifacts
+            for chunk in deploy.chunks.iter() {
+                for (artifact, _md5, _sha1, _sha256) in chunk.artifacts.iter() {
+                    let file_name = artifact.file_name().unwrap().to_str().unwrap();
+                    let path = format!("/download/{}", file_name);
+
+                    self.server.mock(|when, then| {
+                        when.method(GET)
+                            .path(path)
+                            .header("Authorization", &format!("TargetToken {}", self.key));
+
+                        then.status(200).body_from_file(artifact.to_str().unwrap());
+                    });
+                }
             }
-        }
 
-        self.deployment.replace(Some(PendingAction {
-            server: self.server.clone(),
-            path: deploy_path,
-            mock: deploy_mock.id(),
-        }));
+            self.confirmation.replace(None);
+            self.deployment.replace(Some(PendingAction {
+                server: self.server.clone(),
+                path: deploy_path,
+                mock: deploy_mock.id(),
+            }));
+
+        }
 
         self.update_poll();
     }
@@ -382,6 +421,63 @@ impl Target {
                     self.tenant, self.name, deployment_id
                 ))
                 .header("Authorization", format!("TargetToken {}", self.key))
+                .header("Content-Type", "application/json")
+                .json_body(expected);
+
+            then.status(200);
+        })
+    }
+
+    /// Configure the server to expect confirmation feedback from the target.
+    /// One can then check the feedback has actually been received using
+    /// `hits()` on the returned object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use hawkbit_mock::ddi::{ServerBuilder, DeploymentBuilder};
+    /// use hawkbit::ddi::ConfirmationResponse;
+    /// use serde_json::json;
+    ///
+    /// let server = ServerBuilder::default().build();
+    /// let target = server.add_target("Target1");
+    /// let mut mock = target.expect_confirmation_feedback(
+    ///         "10",
+    ///         Some(200),
+    ///         ConfirmationResponse::Confirmed,
+    ///         vec!["Update accepted"],
+    ///     );
+    /// assert_eq!(mock.hits(), 0);
+    ///
+    /// //Client send the feedback
+    /// //assert_eq!(mock.hits(), 1);
+    /// ```
+    pub fn expect_confirmation_feedback(
+        &self,
+        deployment_id: &str,
+        code: Option<i32>,
+        confirmation: ConfirmationResponse,
+        details: Vec<&str>,
+    ) -> Mock<'_> {
+        self.server.mock(|when, then| {
+            let expected = match code {
+                Some(code) => json!({
+                    "confirmation": confirmation,
+                    "code": code,
+                    "details": details,
+                }),
+                None => json!({
+                    "confirmation": confirmation,
+                    "details": details,
+                }),
+            };
+
+            when.method(POST)
+                .path(format!(
+                    "/{}/controller/v1/{}/confirmationBase/{}/feedback",
+                    self.tenant, self.name, deployment_id
+                ))
+                .header("Authorization", &format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
 
@@ -520,6 +616,14 @@ impl Target {
         })
     }
 
+    /// Return the number of times the confirmation details have been fetched by the client.
+    pub fn confirmation_hits(&self) -> usize {
+        self.confirmation.borrow().as_ref().map_or(0, |m| {
+            let mock = Mock::new(m.mock, &self.server);
+            mock.hits()
+        })
+    }
+
     /// Return the number of times the cancel action URL has been fetched by the client.
     pub fn cancel_action_hits(&self) -> usize {
         self.cancel_action.borrow().as_ref().map_or(0, |m| {
@@ -545,6 +649,7 @@ impl Drop for PendingAction {
 /// Builder of [`Deployment`].
 pub struct DeploymentBuilder {
     id: String,
+    confirmation_required: bool,
     download_type: Type,
     update_type: Type,
     maintenance_window: Option<MaintenanceWindow>,
@@ -555,6 +660,7 @@ pub struct DeploymentBuilder {
 pub struct Deployment {
     /// The id of the deployment
     pub id: String,
+    confirmation_required: bool,
     download_type: Type,
     update_type: Type,
     maintenance_window: Option<MaintenanceWindow>,
@@ -566,11 +672,19 @@ impl DeploymentBuilder {
     pub fn new(id: &str, download_type: Type, update_type: Type) -> Self {
         Self {
             id: id.to_string(),
+            confirmation_required: false,
             download_type,
             update_type,
             maintenance_window: None,
             chunks: Vec::new(),
         }
+    }
+
+    /// Set whether the deployment requires confirmation from the target before downloading.
+    pub fn confirmation_required(self, confirmation_required: bool) -> Self {
+        let mut builder = self;
+        builder.confirmation_required = confirmation_required;
+        builder
     }
 
     /// Set the maintenance window status of the deployment.
@@ -615,6 +729,53 @@ impl DeploymentBuilder {
             version: version.to_string(),
             name: name.to_string(),
             artifacts,
+            metadata: None,
+        };
+        builder.chunks.push(chunk);
+
+        builder
+    }
+
+    /// Add a new software chunk to the deployment.
+    /// # Arguments
+    /// * `protocol`: The protocols over which chunks are downloadable
+    /// * `part`: the type of chunk, e.g. `firmware`, `bundle`, `app`
+    /// * `version`: software version of the chunk
+    /// * `name`: name of the chunk
+    /// * `artifacts`: a [`Vec`] of tuples containing:
+    ///   * the local path of the file;
+    ///   * the `md5sum` of the file;
+    ///   * the `sha1sum` of the file;
+    ///   * the `sha256sum` of the file.
+    /// * `metadata`: a [`Vec`] of pairs containing:
+    ///   * the key of the metadata;
+    ///   * the value of the metadata.
+    pub fn chunk_with_metadata(
+        self,
+        protocol: ChunkProtocol,
+        part: &str,
+        version: &str,
+        name: &str,
+        artifacts: Vec<(PathBuf, &str, &str, &str)>,
+        metadata: Vec<(String, String)>,
+    ) -> Self {
+        let mut builder = self;
+
+        let artifacts = artifacts
+            .into_iter()
+            .map(|(path, md5, sha1, sha256)| {
+                assert!(path.exists());
+                (path, md5.to_string(), sha1.to_string(), sha256.to_string())
+            })
+            .collect();
+
+        let chunk = Chunk {
+            protocol,
+            part: part.to_string(),
+            version: version.to_string(),
+            name: name.to_string(),
+            artifacts,
+            metadata: Some(metadata.into_iter().map(|(key, value)| Metadata { key, value }).collect()),
         };
         builder.chunks.push(chunk);
 
@@ -625,6 +786,7 @@ impl DeploymentBuilder {
     pub fn build(self) -> Deployment {
         Deployment {
             id: self.id,
+            confirmation_required: self.confirmation_required,
             download_type: self.download_type,
             update_type: self.update_type,
             maintenance_window: self.maintenance_window,
@@ -655,6 +817,20 @@ impl ChunkProtocol {
     }
 }
 
+pub struct Metadata {
+    key: String,
+    value: String,
+}
+
+impl Metadata {
+    fn json(&self) -> serde_json::Value {
+        json!({
+            "key": self.key,
+            "value": self.value,
+        })
+    }
+}
+
 /// Software chunk of an update.
 pub struct Chunk {
     protocol: ChunkProtocol,
@@ -662,6 +838,7 @@ pub struct Chunk {
     version: String,
     name: String,
     artifacts: Vec<(PathBuf, String, String, String)>, // (path, md5, sha1, sha256)
+    metadata: Option<Vec<Metadata>>,
 }
 
 impl Chunk {
@@ -700,12 +877,22 @@ impl Chunk {
             })
             .collect();
 
-        json!({
+        let mut result = json!({
             "part": self.part,
             "version": self.version,
             "name": self.name,
             "artifacts": artifacts,
-        })
+        });
+
+        if let Some(metadata) = &self.metadata {
+            let metadata: Vec<serde_json::Value> = metadata
+                .iter()
+                .map(|m| m.json())
+                .collect();
+            result.as_object_mut().unwrap().insert("metadata".to_string(), json!(metadata));
+        }
+
+        result
     }
 }
 
@@ -713,17 +900,31 @@ impl Deployment {
     fn json(&self, base_url: &str) -> serde_json::Value {
         let chunks: Vec<serde_json::Value> = self.chunks.iter().map(|c| c.json(base_url)).collect();
 
-        let mut j = json!({
-            "id": self.id,
-            "deployment": {
-                "download": self.download_type,
-                "update": self.update_type,
-                "chunks": chunks,
-            }
-        });
+        let mut j = if self.confirmation_required {
+            json!({
+                "id": self.id,
+                "confirmation": {
+                    "download": self.download_type,
+                    "update": self.update_type,
+                    "chunks": chunks,
+                }
+            })
+        } else {
+            json!({
+                "id": self.id,
+                "deployment": {
+                    "download": self.download_type,
+                    "update": self.update_type,
+                    "chunks": chunks,
+                }
+            })
+        };
 
         if let Some(maintenance_window) = &self.maintenance_window {
-            let d = j.get_mut("deployment").unwrap().as_object_mut().unwrap();
+            let d = j.get_mut(if self.confirmation_required {"confirmation"} else {"deployment"})
+                     .unwrap()
+                     .as_object_mut()
+                     .unwrap();
             d.insert("maintenanceWindow".to_string(), json!(maintenance_window));
         }
 

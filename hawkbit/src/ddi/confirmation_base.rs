@@ -160,6 +160,7 @@ pub enum ConfirmationResponse {
 pub struct Confirmation {
     confirmation: ConfirmationResponse,
     code: i32,
+    details: Vec<String>,
 }
 
 impl Confirmation {
@@ -167,6 +168,7 @@ impl Confirmation {
         Self {
             confirmation,
             code,
+            details: vec![],
         }
     }
 }

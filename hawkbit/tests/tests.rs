@@ -7,7 +7,7 @@ use std::{path::PathBuf, time::Duration};
 
 use bytes::Bytes;
 use futures::prelude::*;
-use hawkbit::ddi::{Client, Error, Execution, Finished, MaintenanceWindow, Mode, Type};
+use hawkbit::ddi::{Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type};
 use serde::Serialize;
 use serde_json::json;
 use tempdir::TempDir;
@@ -112,7 +112,7 @@ fn artifact_path() -> PathBuf {
     test_artifact
 }
 
-fn get_deployment(valid_checksums: bool) -> Deployment {
+fn get_deployment(needs_confirmation: bool, valid_checksums: bool) -> Deployment {
     let test_artifact = artifact_path();
 
     let artifacts = if valid_checksums {
@@ -127,6 +127,7 @@ fn get_deployment(valid_checksums: bool) -> Deployment {
     };
 
     DeploymentBuilder::new("10", Type::Forced, Type::Attempt)
+        .confirmation_required(needs_confirmation)
         .maintenance_window(MaintenanceWindow::Available)
         .chunk(
             ChunkProtocol::BOTH,
@@ -135,19 +136,24 @@ fn get_deployment(valid_checksums: bool) -> Deployment {
             "some-chunk",
             artifacts.clone(),
         )
-        .chunk(
+        .chunk_with_metadata(
             ChunkProtocol::HTTP,
             "app-http",
             "1.0",
             "some-chunk",
             artifacts.clone(),
+            vec![("key1".to_string(), "value1".to_string())],
         )
-        .chunk(
+        .chunk_with_metadata(
             ChunkProtocol::HTTPS,
             "app-https",
             "1.0",
             "some-chunk",
             artifacts,
+            vec![
+                ("key2".to_string(), "value2".to_string()),
+                ("key3".to_string(), "value3".to_string()),
+            ],
         )
         .build()
 }
@@ -158,7 +164,7 @@ async fn deployment() {
 
     let server = ServerBuilder::default().build();
     let (client, target) = add_target(&server, "Target1");
-    target.push_deployment(get_deployment(true));
+    target.push_deployment(get_deployment(false, true));
 
     let reply = client.poll().await.expect("poll failed");
     assert!(reply.config_data_request().is_none());
@@ -223,7 +229,7 @@ async fn send_deployment_feedback() {
     init();
 
     let server = ServerBuilder::default().build();
-    let deploy = get_deployment(true);
+    let deploy = get_deployment(false, true);
     let deploy_id = deploy.id.clone();
     let (client, target) = add_target(&server, "Target1");
     target.push_deployment(deploy);
@@ -279,6 +285,76 @@ async fn send_deployment_feedback() {
 }
 
 #[tokio::test]
+async fn confirmation() {
+    init();
+
+    let server = ServerBuilder::default().build();
+    let deploy = get_deployment(true, true);
+    let deploy_id = deploy.id.clone();
+    let (client, target) = add_target(&server, "Target1");
+    target.push_deployment(deploy);
+
+    let reply = client.poll().await.expect("poll failed");
+    let confirmation = reply.confirmation_base().expect("missing confirmation request");
+
+    // Decline the confirmation
+    let mut mock = target.expect_confirmation_feedback(
+        &deploy_id,
+        Some(-1),
+        ConfirmationResponse::Denied,
+        vec![],
+    );
+    assert_eq!(mock.hits(), 0);
+
+    confirmation
+        .decline()
+        .await
+        .expect("Failed to send feedback");
+    assert_eq!(mock.hits(), 1);
+    mock.delete();
+
+    let reply = client.poll().await.expect("poll failed");
+    let confirmation = reply.confirmation_base().expect("missing confirmation request");
+    let update_info = confirmation.update_info().await.expect("failed to fetch update info");
+
+    // Accept the confirmation
+    let mut mock = target.expect_confirmation_feedback(
+        &deploy_id,
+        Some(1),
+        ConfirmationResponse::Confirmed,
+        vec![],
+    );
+    assert_eq!(mock.hits(), 0);
+
+    confirmation
+        .confirm()
+        .await
+        .expect("Failed to send feedback");
+    assert_eq!(mock.hits(), 1);
+    mock.delete();
+}
+
+#[tokio::test]
+async fn confirmation_metadata() {
+    init();
+
+    let server = ServerBuilder::default().build();
+    let deploy = get_deployment(true, true);
+    let deploy_id = deploy.id.clone();
+    let (client, target) = add_target(&server, "Target1");
+    target.push_deployment(deploy);
+
+    let reply = client.poll().await.expect("poll failed");
+    let confirmation = reply.confirmation_base().expect("missing confirmation request");
+
+    let metadata = confirmation.metadata().await.expect("failed to fetch metadata");
+    assert_eq!(metadata.len(), 3);
+    assert_eq!(metadata[0], ("key1".to_string(), "value1".to_string()));
+    assert_eq!(metadata[1], ("key2".to_string(), "value2".to_string()));
+    assert_eq!(metadata[2], ("key3".to_string(), "value3".to_string()));
+}
+
+#[tokio::test]
 async fn config_then_deploy() {
     init();
 
@@ -310,7 +386,7 @@ async fn config_then_deploy() {
     assert!(reply.update().is_none());
 
     // server pushes an update
-    target.push_deployment(get_deployment(true));
+    target.push_deployment(get_deployment(false, true));
 
     let reply = client.poll().await.expect("poll failed");
     assert!(reply.config_data_request().is_some());
@@ -324,7 +400,7 @@ async fn download_stream() {
     let server = ServerBuilder::default().build();
     let (client, target) = add_target(&server, "Target1");
 
-    target.push_deployment(get_deployment(true));
+    target.push_deployment(get_deployment(false, true));
     let reply = client.poll().await.expect("poll failed");
 
     let update = reply.update().expect("missing update");
@@ -397,7 +473,7 @@ async fn wrong_checksums() {
     let server = ServerBuilder::default().build();
     let (client, target) = add_target(&server, "Target1");
 
-    target.push_deployment(get_deployment(false));
+    target.push_deployment(get_deployment(false, false));
     let reply = client.poll().await.expect("poll failed");
 
     let update = reply.update().expect("missing update");
