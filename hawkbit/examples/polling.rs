@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use hawkbit::ddi::{Client, Execution, Finished, ClientAuthorization};
+use hawkbit::ddi::{Client, ClientAuthorization, Execution, Finished};
 use serde::Serialize;
 use structopt::StructOpt;
 use tokio::time::sleep;
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let auth = ClientAuthorization::TargetToken(opt.key);
-    let ddi = Client::new(&opt.url, &opt.tenant, &opt.controller, auth)?;
+    let ddi = Client::new(&opt.url, &opt.tenant, &opt.controller, auth, None)?;
 
     loop {
         let reply = ddi.poll().await?;

@@ -8,7 +8,8 @@ use std::{path::PathBuf, time::Duration};
 use bytes::Bytes;
 use futures::prelude::*;
 use hawkbit::ddi::{
-    Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type,
+    Client, ClientAuthorization, ConfirmationResponse, Error, Execution, Finished,
+    MaintenanceWindow, Mode, Type,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -30,6 +31,7 @@ fn add_target(server: &Server, name: &str) -> (Client, Target) {
         &server.tenant,
         &target.name,
         ClientAuthorization::TargetToken(target.key.clone()),
+        None,
     )
     .expect("DDI creation failed");
 

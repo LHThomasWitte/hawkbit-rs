@@ -3,6 +3,8 @@
 
 use std::convert::TryInto;
 
+use std::fs::File;
+use std::io::Read;
 use thiserror::Error;
 use url::Url;
 
@@ -64,6 +66,7 @@ impl Client {
         tenant: &str,
         controller_id: &str,
         authorization: ClientAuthorization,
+        server_cert: Option<&str>,
     ) -> Result<Self, Error> {
         let host: Url = url.parse()?;
         let path = format!("{}/controller/v1/{}", tenant, controller_id);
@@ -76,21 +79,31 @@ impl Client {
                     reqwest::header::AUTHORIZATION,
                     format!("TargetToken {}", &key_token).try_into()?,
                 );
-            },
+            }
             ClientAuthorization::GatewayToken(key_token) => {
                 headers.insert(
                     reqwest::header::AUTHORIZATION,
                     format!("GatewayToken {}", &key_token).try_into()?,
                 );
-            },
+            }
             ClientAuthorization::None => {
                 // no authorization header needed
-            },
+            }
         }
-        
-        let client = reqwest::Client::builder()
+
+        let mut client_builder = reqwest::Client::builder()
             .default_headers(headers)
-            .build()?;
+            .connection_verbose(true);
+
+        // Set the server certificate if provided
+        if let Some(cert_file) = server_cert {
+            let mut buf = Vec::new();
+            File::open(cert_file)?.read_to_end(&mut buf)?;
+            let cert = reqwest::Certificate::from_pem(&buf)?;
+            client_builder = client_builder.add_root_certificate(cert);
+        }
+
+        let client = client_builder.build()?;
         Ok(Self { base_url, client })
     }
 

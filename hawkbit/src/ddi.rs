@@ -23,7 +23,7 @@ mod feedback;
 mod poll;
 
 pub use cancel_action::CancelAction;
-pub use client::{Client, Error, ClientAuthorization};
+pub use client::{Client, ClientAuthorization, Error};
 pub use common::{Execution, Finished};
 pub use config_data::{ConfigRequest, Mode};
 pub use confirmation_base::{ConfirmationInfo, ConfirmationRequest, ConfirmationResponse};
