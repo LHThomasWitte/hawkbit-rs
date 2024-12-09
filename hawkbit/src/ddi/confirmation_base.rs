@@ -5,9 +5,10 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
 use crate::ddi::client::Error;
-use crate::ddi::deployment_base::{Deployment, Chunk};
+use crate::ddi::deployment_base::{Chunk, Deployment};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 /// A pending confirmation whose details have not been retrieved yet.
 ///
 /// Call [`ConfirmationRequest::fetch()`] to retrieve the details from server.
@@ -19,7 +20,11 @@ pub struct ConfirmationRequest {
 
 impl ConfirmationRequest {
     pub(crate) fn new(client: Client, url: String) -> Self {
-        Self { client, url, details: vec![] }
+        Self {
+            client,
+            url,
+            details: vec![],
+        }
     }
 
     /// confirm the confirmation request. The server should then proceed with the update and make a deploymentBase available.
@@ -36,8 +41,9 @@ impl ConfirmationRequest {
         }
         url.set_query(None);
 
-        let reply = self.client
-            .post(&url.to_string())
+        let reply = self
+            .client
+            .post(url.to_string())
             .json(&confirmation)
             .send()
             .await?;
@@ -59,8 +65,9 @@ impl ConfirmationRequest {
         }
         url.set_query(None);
 
-        let reply = self.client
-            .post(&url.to_string())
+        let reply = self
+            .client
+            .post(url.to_string())
             .json(&confirmation)
             .send()
             .await?;
@@ -74,7 +81,10 @@ impl ConfirmationRequest {
         reply.error_for_status_ref()?;
 
         let reply: Reply = reply.json().await?;
-        Ok(ConfirmationInfo {reply, client: self.client.clone()})
+        Ok(ConfirmationInfo {
+            reply,
+            client: self.client.clone(),
+        })
     }
 
     /// The metadata of all chunks of the update.
@@ -95,8 +105,7 @@ impl ConfirmationRequest {
         // collect all metadata of each chunk
         let metadata = chunks
             .iter()
-            .map(|c| c.metadata().collect::<Vec<(&str, &str)>>())
-            .flatten()
+            .flat_map(|c| c.metadata().collect::<Vec<(&str, &str)>>())
             .map(|(k, v): (&str, &str)| (k.to_string(), v.to_string()))
             .collect();
 
@@ -126,8 +135,7 @@ impl ConfirmationInfo {
         // collect all metadata of each chunk
         let metadata = chunks
             .iter()
-            .map(|c| c.metadata().collect::<Vec<(&str, &str)>>())
-            .flatten()
+            .flat_map(|c| c.metadata().collect::<Vec<(&str, &str)>>())
             .map(|(k, v): (&str, &str)| (k.to_string(), v.to_string()))
             .collect();
 
@@ -142,8 +150,8 @@ impl ConfirmationInfo {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Reply {
-     id: String,
-     confirmation: Deployment,
+    id: String,
+    confirmation: Deployment,
 }
 
 /// The response to a confirmation request.

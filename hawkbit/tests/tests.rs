@@ -7,7 +7,9 @@ use std::{path::PathBuf, time::Duration};
 
 use bytes::Bytes;
 use futures::prelude::*;
-use hawkbit::ddi::{Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type};
+use hawkbit::ddi::{
+    Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type,
+};
 use serde::Serialize;
 use serde_json::json;
 use tempdir::TempDir;
@@ -295,7 +297,9 @@ async fn confirmation() {
     target.push_deployment(deploy);
 
     let reply = client.poll().await.expect("poll failed");
-    let confirmation = reply.confirmation_base().expect("missing confirmation request");
+    let confirmation = reply
+        .confirmation_base()
+        .expect("missing confirmation request");
 
     // Decline the confirmation
     let mut mock = target.expect_confirmation_feedback(
@@ -304,18 +308,28 @@ async fn confirmation() {
         ConfirmationResponse::Denied,
         vec![],
     );
-    assert_eq!(mock.hits(), 0);
+    assert_eq!(mock.calls(), 0);
 
     confirmation
         .decline()
         .await
         .expect("Failed to send feedback");
-    assert_eq!(mock.hits(), 1);
+    assert_eq!(mock.calls(), 1);
     mock.delete();
 
     let reply = client.poll().await.expect("poll failed");
-    let confirmation = reply.confirmation_base().expect("missing confirmation request");
-    let update_info = confirmation.update_info().await.expect("failed to fetch update info");
+    let confirmation = reply
+        .confirmation_base()
+        .expect("missing confirmation request");
+    let update_info = confirmation
+        .update_info()
+        .await
+        .expect("failed to fetch update info");
+
+    assert_eq!(
+        update_info.metadata(),
+        confirmation.metadata().await.unwrap()
+    );
 
     // Accept the confirmation
     let mut mock = target.expect_confirmation_feedback(
@@ -324,13 +338,13 @@ async fn confirmation() {
         ConfirmationResponse::Confirmed,
         vec![],
     );
-    assert_eq!(mock.hits(), 0);
+    assert_eq!(mock.calls(), 0);
 
     confirmation
         .confirm()
         .await
         .expect("Failed to send feedback");
-    assert_eq!(mock.hits(), 1);
+    assert_eq!(mock.calls(), 1);
     mock.delete();
 }
 
@@ -340,14 +354,18 @@ async fn confirmation_metadata() {
 
     let server = ServerBuilder::default().build();
     let deploy = get_deployment(true, true);
-    let deploy_id = deploy.id.clone();
     let (client, target) = add_target(&server, "Target1");
     target.push_deployment(deploy);
 
     let reply = client.poll().await.expect("poll failed");
-    let confirmation = reply.confirmation_base().expect("missing confirmation request");
+    let confirmation = reply
+        .confirmation_base()
+        .expect("missing confirmation request");
 
-    let metadata = confirmation.metadata().await.expect("failed to fetch metadata");
+    let metadata = confirmation
+        .metadata()
+        .await
+        .expect("failed to fetch metadata");
     assert_eq!(metadata.len(), 3);
     assert_eq!(metadata[0], ("key1".to_string(), "value1".to_string()));
     assert_eq!(metadata[1], ("key2".to_string(), "value2".to_string()));

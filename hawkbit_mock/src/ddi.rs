@@ -34,7 +34,7 @@ use httpmock::{
 };
 use serde_json::{json, Map, Value};
 
-use hawkbit::ddi::{Execution, Finished, MaintenanceWindow, Type, ConfirmationResponse};
+use hawkbit::ddi::{ConfirmationResponse, Execution, Finished, MaintenanceWindow, Type};
 
 /// Builder of [`Server`].
 ///
@@ -322,7 +322,7 @@ impl Target {
                         "/DEFAULT/controller/v1/{}/deploymentBase/{}",
                         self.name, deploy.id
                     ))
-                    .header("Authorization", &format!("TargetToken {}", self.key));
+                    .header("Authorization", format!("TargetToken {}", self.key));
 
                 then.status(200)
                     .header("Content-Type", "application/json")
@@ -338,7 +338,7 @@ impl Target {
                     self.server.mock(|when, then| {
                         when.method(GET)
                             .path(path)
-                            .header("Authorization", &format!("TargetToken {}", self.key));
+                            .header("Authorization", format!("TargetToken {}", self.key));
 
                         then.status(200).body_from_file(artifact.to_str().unwrap());
                     });
@@ -351,7 +351,6 @@ impl Target {
                 path: deploy_path,
                 mock: deploy_mock.id(),
             }));
-
         }
 
         self.update_poll();
@@ -477,7 +476,7 @@ impl Target {
                     "/{}/controller/v1/{}/confirmationBase/{}/feedback",
                     self.tenant, self.name, deployment_id
                 ))
-                .header("Authorization", &format!("TargetToken {}", self.key))
+                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
 
@@ -620,7 +619,7 @@ impl Target {
     pub fn confirmation_hits(&self) -> usize {
         self.confirmation.borrow().as_ref().map_or(0, |m| {
             let mock = Mock::new(m.mock, &self.server);
-            mock.hits()
+            mock.calls()
         })
     }
 
@@ -775,7 +774,12 @@ impl DeploymentBuilder {
             version: version.to_string(),
             name: name.to_string(),
             artifacts,
-            metadata: Some(metadata.into_iter().map(|(key, value)| Metadata { key, value }).collect()),
+            metadata: Some(
+                metadata
+                    .into_iter()
+                    .map(|(key, value)| Metadata { key, value })
+                    .collect(),
+            ),
         };
         builder.chunks.push(chunk);
 
@@ -817,6 +821,7 @@ impl ChunkProtocol {
     }
 }
 
+/// key-value pair of metadata of a software set
 pub struct Metadata {
     key: String,
     value: String,
@@ -885,11 +890,11 @@ impl Chunk {
         });
 
         if let Some(metadata) = &self.metadata {
-            let metadata: Vec<serde_json::Value> = metadata
-                .iter()
-                .map(|m| m.json())
-                .collect();
-            result.as_object_mut().unwrap().insert("metadata".to_string(), json!(metadata));
+            let metadata: Vec<serde_json::Value> = metadata.iter().map(|m| m.json()).collect();
+            result
+                .as_object_mut()
+                .unwrap()
+                .insert("metadata".to_string(), json!(metadata));
         }
 
         result
@@ -921,10 +926,15 @@ impl Deployment {
         };
 
         if let Some(maintenance_window) = &self.maintenance_window {
-            let d = j.get_mut(if self.confirmation_required {"confirmation"} else {"deployment"})
-                     .unwrap()
-                     .as_object_mut()
-                     .unwrap();
+            let d = j
+                .get_mut(if self.confirmation_required {
+                    "confirmation"
+                } else {
+                    "deployment"
+                })
+                .unwrap()
+                .as_object_mut()
+                .unwrap();
             d.insert("maintenanceWindow".to_string(), json!(maintenance_window));
         }
 
