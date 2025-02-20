@@ -34,6 +34,7 @@ fn add_target(server: &Server, name: &str) -> (Client, Target) {
         target.client_auth.clone(),
         None,
         None,
+        None,
     )
     .expect("DDI creation failed");
 
@@ -711,6 +712,7 @@ async fn client_authorization() {
         hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget2".to_string()),
         None,
         None,
+        None,
     )
     .unwrap();
     let client2 = Client::new(
@@ -720,6 +722,7 @@ async fn client_authorization() {
         hawkbit::ddi::ClientAuthorization::TargetToken("WrongToken".to_string()),
         None,
         None,
+        None,
     )
     .unwrap();
     let client3 = Client::new(
@@ -727,6 +730,7 @@ async fn client_authorization() {
         &server.tenant,
         "Target2",
         hawkbit::ddi::ClientAuthorization::None,
+        None,
         None,
         None,
     )
@@ -754,6 +758,7 @@ async fn client_authorization() {
         hawkbit::ddi::ClientAuthorization::GatewayToken("KeyDEFAULT".to_string()),
         None,
         None,
+        None,
     )
     .unwrap();
     let client2 = Client::new(
@@ -763,6 +768,7 @@ async fn client_authorization() {
         hawkbit::ddi::ClientAuthorization::GatewayToken("WrongToken".to_string()),
         None,
         None,
+        None,
     )
     .unwrap();
     let client3 = Client::new(
@@ -770,6 +776,7 @@ async fn client_authorization() {
         &server.tenant,
         "Target3",
         hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget3".to_string()),
+        None,
         None,
         None,
     )
@@ -803,6 +810,7 @@ async fn certificate() {
         "Target1",
         hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget1".to_string()),
         Some("tests/data/test.txt"),
+        None,
         None,
     )
     .unwrap();

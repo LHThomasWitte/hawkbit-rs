@@ -6,6 +6,7 @@ use std::convert::TryInto;
 use reqwest::Identity;
 use std::fs::File;
 use std::io::Read;
+use std::time::Duration;
 use thiserror::Error;
 use url::Url;
 
@@ -69,6 +70,7 @@ impl Client {
         authorization: ClientAuthorization,
         server_cert: Option<&str>,
         client_cert: Option<&str>,
+        timeout: Option<Duration>,
     ) -> Result<Self, Error> {
         let host: Url = url.parse()?;
         let path = format!("{}/controller/v1/{}", tenant, controller_id);
@@ -120,6 +122,13 @@ impl Client {
             client_builder = client_builder
                 .tls_built_in_root_certs(false)
                 .https_only(true);
+        }
+
+        // Add timeouts to all connections
+        if let Some(timeout) = timeout {
+            client_builder = client_builder
+                .connect_timeout(timeout)
+                .read_timeout(timeout);
         }
 
         let client = client_builder
