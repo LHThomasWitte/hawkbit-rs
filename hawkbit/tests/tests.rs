@@ -8,8 +8,7 @@ use std::{path::PathBuf, time::Duration};
 use bytes::Bytes;
 use futures::prelude::*;
 use hawkbit::ddi::{
-    Client, ClientAuthorization, ConfirmationResponse, Error, Execution, Finished,
-    MaintenanceWindow, Mode, Type,
+    Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -30,7 +29,7 @@ fn add_target(server: &Server, name: &str) -> (Client, Target) {
         &server.base_url(),
         &server.tenant,
         &target.name,
-        ClientAuthorization::TargetToken(target.key.clone()),
+        target.client_auth.clone(),
         None,
     )
     .expect("DDI creation failed");
@@ -593,4 +592,102 @@ async fn cancel_action() {
         .expect("Failed to send feedback");
     assert_eq!(mock.calls(), 1);
     mock.delete();
+}
+
+#[tokio::test]
+async fn client_authorization() {
+    init();
+
+    let server = ServerBuilder::default()
+        .target_authorization(hawkbit_mock::ddi::TargetAuthorization::None)
+        .build();
+    let (client, _target) = add_target(&server, "Target1");
+
+    client.poll().await.expect("poll failed");
+
+    let server = ServerBuilder::default()
+        .target_authorization(hawkbit_mock::ddi::TargetAuthorization::TargetToken)
+        .build();
+    let _ = add_target(&server, "Target2");
+    // create the client manually to control the authorization method
+    let client1 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target2",
+        hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget2".to_string()),
+        None,
+        None,
+    )
+    .unwrap();
+    let client2 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target2",
+        hawkbit::ddi::ClientAuthorization::TargetToken("WrongToken".to_string()),
+        None,
+        None,
+    )
+    .unwrap();
+    let client3 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target2",
+        hawkbit::ddi::ClientAuthorization::None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    client1.poll().await.expect("poll failed");
+    client2
+        .poll()
+        .await
+        .expect_err("poll with wrong token succeeded");
+    client3
+        .poll()
+        .await
+        .expect_err("poll without token succeeded");
+
+    let server = ServerBuilder::default()
+        .target_authorization(hawkbit_mock::ddi::TargetAuthorization::GatewayToken)
+        .build();
+    let _ = add_target(&server, "Target3");
+    // create the client manually to control the authorization method
+    let client1 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target3",
+        hawkbit::ddi::ClientAuthorization::GatewayToken("KeyDEFAULT".to_string()),
+        None,
+        None,
+    )
+    .unwrap();
+    let client2 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target3",
+        hawkbit::ddi::ClientAuthorization::GatewayToken("WrongToken".to_string()),
+        None,
+        None,
+    )
+    .unwrap();
+    let client3 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target3",
+        hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget3".to_string()),
+        None,
+        None,
+    )
+    .unwrap();
+
+    client1.poll().await.expect("poll failed");
+    client2
+        .poll()
+        .await
+        .expect_err("poll with wrong token succeeded");
+    client3
+        .poll()
+        .await
+        .expect_err("poll with TargetToken succeeded");
 }

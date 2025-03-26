@@ -34,7 +34,20 @@ use httpmock::{
 };
 use serde_json::{json, Map, Value};
 
-use hawkbit::ddi::{ConfirmationResponse, Execution, Finished, MaintenanceWindow, Type};
+use hawkbit::ddi::{
+    ClientAuthorization, ConfirmationResponse, Execution, Finished, MaintenanceWindow, Type,
+};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Authorization method that is required in requests by the target
+pub enum TargetAuthorization {
+    /// no authorization
+    None,
+    /// require a target token
+    TargetToken,
+    /// require a gateway token
+    GatewayToken,
+}
 
 /// Builder of [`Server`].
 ///
@@ -47,12 +60,14 @@ use hawkbit::ddi::{ConfirmationResponse, Execution, Finished, MaintenanceWindow,
 /// ```
 pub struct ServerBuilder {
     tenant: String,
+    target_authorization: TargetAuthorization,
 }
 
 impl Default for ServerBuilder {
     fn default() -> Self {
         Self {
             tenant: "DEFAULT".into(),
+            target_authorization: TargetAuthorization::TargetToken,
         }
     }
 }
@@ -65,11 +80,19 @@ impl ServerBuilder {
         builder
     }
 
+    /// Set the client authorization method, default to `TargetToken`.
+    pub fn target_authorization(self, target_authorization: TargetAuthorization) -> Self {
+        let mut builder = self;
+        builder.target_authorization = target_authorization;
+        builder
+    }
+
     /// Create the [`Server`].
     pub fn build(self) -> Server {
         Server {
             server: Rc::new(MockServer::start()),
             tenant: self.tenant,
+            target_authorization: self.target_authorization,
         }
     }
 }
@@ -78,6 +101,8 @@ impl ServerBuilder {
 pub struct Server {
     /// The tenant of the server.
     pub tenant: String,
+    /// The authorization method of the server.
+    pub target_authorization: TargetAuthorization,
     server: Rc<MockServer>,
 }
 
@@ -89,7 +114,16 @@ impl Server {
 
     /// Add a new target named `name` to the server.
     pub fn add_target(&self, name: &str) -> Target {
-        Target::new(name, &self.server, &self.tenant)
+        let client_auth = match self.target_authorization {
+            TargetAuthorization::None => ClientAuthorization::None,
+            TargetAuthorization::TargetToken => {
+                ClientAuthorization::TargetToken(format!("Key{}", name))
+            }
+            TargetAuthorization::GatewayToken => {
+                ClientAuthorization::GatewayToken(format!("Key{}", self.tenant))
+            }
+        };
+        Target::new(name, &self.server, &self.tenant, &client_auth)
     }
 }
 
@@ -98,7 +132,7 @@ pub struct Target {
     /// The name of the target.
     pub name: String,
     /// The secret authentification token used to identify the target on the server.
-    pub key: String,
+    pub client_auth: ClientAuthorization,
     server: Rc<MockServer>,
     tenant: String,
     poll: Cell<usize>,
@@ -109,13 +143,16 @@ pub struct Target {
 }
 
 impl Target {
-    fn new(name: &str, server: &Rc<MockServer>, tenant: &str) -> Self {
-        let key = format!("Key{}", name);
-
-        let poll = Self::create_poll(server, tenant, name, &key, None, None, None, None);
+    fn new(
+        name: &str,
+        server: &Rc<MockServer>,
+        tenant: &str,
+        client_auth: &ClientAuthorization,
+    ) -> Self {
+        let poll = Self::create_poll(server, tenant, name, client_auth, None, None, None, None);
         Target {
             name: name.to_string(),
-            key,
+            client_auth: client_auth.clone(),
             server: server.clone(),
             tenant: tenant.to_string(),
             poll: Cell::new(poll),
@@ -131,7 +168,7 @@ impl Target {
         server: &MockServer,
         tenant: &str,
         name: &str,
-        key: &str,
+        client_auth: &ClientAuthorization,
         expected_config_data: Option<&PendingAction>,
         confirmation: Option<&PendingAction>,
         deployment: Option<&PendingAction>,
@@ -162,9 +199,19 @@ impl Target {
         });
 
         let mock = server.mock(|when, then| {
-            when.method(GET)
-                .path(format!("/{}/controller/v1/{}", tenant, name))
-                .header("Authorization", format!("TargetToken {}", key));
+            let when = when
+                .method(GET)
+                .path(format!("/{}/controller/v1/{}", tenant, name));
+
+            match client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200)
                 .header("Content-Type", "application/json")
@@ -179,7 +226,7 @@ impl Target {
             &self.server,
             &self.tenant,
             &self.name,
-            &self.key,
+            &self.client_auth,
             self.config_data.borrow().as_ref(),
             self.confirmation.borrow().as_ref(),
             self.deployment.borrow().as_ref(),
@@ -226,11 +273,21 @@ impl Target {
             .url(format!("/DEFAULT/controller/v1/{}/configData", self.name));
 
         let config_data = self.server.mock(|when, then| {
-            when.method(PUT)
+            let when = when
+                .method(PUT)
                 .path(format!("/DEFAULT/controller/v1/{}/configData", self.name))
                 .header("Content-Type", "application/json")
-                .header("Authorization", format!("TargetToken {}", self.key))
                 .json_body(expected_config_data);
+
+            match &self.client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200);
         });
@@ -289,12 +346,20 @@ impl Target {
             let response = deploy.json(&base_url);
 
             let confirmation_mock = self.server.mock(|when, then| {
-                when.method(GET)
-                    .path(format!(
-                        "/DEFAULT/controller/v1/{}/confirmationBase/{}",
-                        self.name, deploy.id
-                    ))
-                    .header("Authorization", format!("TargetToken {}", self.key));
+                let when = when.method(GET).path(format!(
+                    "/DEFAULT/controller/v1/{}/confirmationBase/{}",
+                    self.name, deploy.id
+                ));
+
+                match &self.client_auth {
+                    ClientAuthorization::None => { /* do not require Authorization header */ }
+                    ClientAuthorization::TargetToken(key) => {
+                        when.header("Authorization", format!("TargetToken {}", key));
+                    }
+                    ClientAuthorization::GatewayToken(key) => {
+                        when.header("Authorization", format!("GatewayToken {}", key));
+                    }
+                };
 
                 then.status(200)
                     .header("Content-Type", "application/json")
@@ -317,12 +382,20 @@ impl Target {
             let response = deploy.json(&base_url);
 
             let deploy_mock = self.server.mock(|when, then| {
-                when.method(GET)
-                    .path(format!(
-                        "/DEFAULT/controller/v1/{}/deploymentBase/{}",
-                        self.name, deploy.id
-                    ))
-                    .header("Authorization", format!("TargetToken {}", self.key));
+                let when = when.method(GET).path(format!(
+                    "/DEFAULT/controller/v1/{}/deploymentBase/{}",
+                    self.name, deploy.id
+                ));
+
+                match &self.client_auth {
+                    ClientAuthorization::None => { /* do not require Authorization header */ }
+                    ClientAuthorization::TargetToken(key) => {
+                        when.header("Authorization", format!("TargetToken {}", key));
+                    }
+                    ClientAuthorization::GatewayToken(key) => {
+                        when.header("Authorization", format!("GatewayToken {}", key));
+                    }
+                };
 
                 then.status(200)
                     .header("Content-Type", "application/json")
@@ -336,9 +409,18 @@ impl Target {
                     let path = format!("/download/{}", file_name);
 
                     self.server.mock(|when, then| {
-                        when.method(GET)
-                            .path(path)
-                            .header("Authorization", format!("TargetToken {}", self.key));
+                        let when = when.method(GET).path(path);
+
+                        match &self.client_auth {
+                            ClientAuthorization::None => { /* do not require Authorization header */
+                            }
+                            ClientAuthorization::TargetToken(key) => {
+                                when.header("Authorization", format!("TargetToken {}", key));
+                            }
+                            ClientAuthorization::GatewayToken(key) => {
+                                when.header("Authorization", format!("GatewayToken {}", key));
+                            }
+                        };
 
                         then.status(200).body_from_file(artifact.to_str().unwrap());
                     });
@@ -414,14 +496,24 @@ impl Target {
                 }),
             };
 
-            when.method(POST)
+            let when = when
+                .method(POST)
                 .path(format!(
                     "/{}/controller/v1/{}/deploymentBase/{}/feedback",
                     self.tenant, self.name, deployment_id
                 ))
-                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
+
+            match &self.client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200);
         })
@@ -471,14 +563,24 @@ impl Target {
                 }),
             };
 
-            when.method(POST)
+            let when = when
+                .method(POST)
                 .path(format!(
                     "/{}/controller/v1/{}/confirmationBase/{}/feedback",
                     self.tenant, self.name, deployment_id
                 ))
-                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
+
+            match &self.client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200);
         })
@@ -514,12 +616,20 @@ impl Target {
         });
 
         let cancel_mock = self.server.mock(|when, then| {
-            when.method(GET)
-                .path(format!(
-                    "/DEFAULT/controller/v1/{}/cancelAction/{}",
-                    self.name, id
-                ))
-                .header("Authorization", format!("TargetToken {}", self.key));
+            let when = when.method(GET).path(format!(
+                "/DEFAULT/controller/v1/{}/cancelAction/{}",
+                self.name, id
+            ));
+
+            match &self.client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200)
                 .header("Content-Type", "application/json")
@@ -580,14 +690,24 @@ impl Target {
                 },
             });
 
-            when.method(POST)
+            let when = when
+                .method(POST)
                 .path(format!(
                     "/{}/controller/v1/{}/cancelAction/{}/feedback",
                     self.tenant, self.name, cancel_id
                 ))
-                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
+
+            match &self.client_auth {
+                ClientAuthorization::None => { /* do not require Authorization header */ }
+                ClientAuthorization::TargetToken(key) => {
+                    when.header("Authorization", format!("TargetToken {}", key));
+                }
+                ClientAuthorization::GatewayToken(key) => {
+                    when.header("Authorization", format!("GatewayToken {}", key));
+                }
+            };
 
             then.status(200);
         })
