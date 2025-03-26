@@ -176,6 +176,7 @@ async fn deployment() {
     let update = reply.update().expect("missing update");
     let update = update.fetch().await.expect("failed to fetch update info");
     assert_eq!(target.deployment_hits(), 1);
+    assert_eq!(update.action_id(), "10");
     assert_eq!(update.download_type(), Type::Forced);
     assert_eq!(update.update_type(), Type::Attempt);
     assert_eq!(
@@ -326,6 +327,9 @@ async fn confirmation() {
         .update_info()
         .await
         .expect("failed to fetch update info");
+
+    let action_id = update_info.action_id();
+    assert_eq!(action_id, deploy_id);
 
     assert_eq!(
         update_info.metadata(),
@@ -690,4 +694,27 @@ async fn client_authorization() {
         .poll()
         .await
         .expect_err("poll with TargetToken succeeded");
+}
+
+#[tokio::test]
+async fn certificate() {
+    init();
+
+    // the mock server used by hawkbit_mock does not support https, so we
+    // cannot test it fully, but we can at least test loading a certificate
+    // file.
+    let server = ServerBuilder::default()
+        .target_authorization(hawkbit_mock::ddi::TargetAuthorization::None)
+        .build();
+    let (_client, _target) = add_target(&server, "Target1");
+    let client1 = Client::new(
+        &server.base_url(),
+        &server.tenant,
+        "Target1",
+        hawkbit::ddi::ClientAuthorization::TargetToken("KeyTarget1".to_string()),
+        Some("tests/data/test.txt"),
+        None,
+    )
+    .unwrap();
+    client1.poll().await.unwrap();
 }
