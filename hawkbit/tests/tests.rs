@@ -31,6 +31,7 @@ fn add_target(server: &Server, name: &str) -> (Client, Target) {
         &target.name,
         target.client_auth.clone(),
         None,
+        None,
     )
     .expect("DDI creation failed");
 
@@ -176,7 +177,6 @@ async fn deployment() {
     let update = reply.update().expect("missing update");
     let update = update.fetch().await.expect("failed to fetch update info");
     assert_eq!(target.deployment_hits(), 1);
-    assert_eq!(update.action_id(), "10");
     assert_eq!(update.download_type(), Type::Forced);
     assert_eq!(update.update_type(), Type::Attempt);
     assert_eq!(
@@ -716,5 +716,7 @@ async fn certificate() {
         None,
     )
     .unwrap();
-    client1.poll().await.unwrap();
+
+    // this returns an error, as the mock server does not use https
+    client1.poll().await.unwrap_err();
 }

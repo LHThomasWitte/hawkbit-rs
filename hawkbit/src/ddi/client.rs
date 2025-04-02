@@ -3,6 +3,7 @@
 
 use std::convert::TryInto;
 
+use reqwest::Identity;
 use std::fs::File;
 use std::io::Read;
 use thiserror::Error;
@@ -67,10 +68,13 @@ impl Client {
         controller_id: &str,
         authorization: ClientAuthorization,
         server_cert: Option<&str>,
+        client_cert: Option<&str>,
     ) -> Result<Self, Error> {
         let host: Url = url.parse()?;
         let path = format!("{}/controller/v1/{}", tenant, controller_id);
         let base_url = host.join(&path)?;
+
+        let mut client_builder = reqwest::Client::builder();
 
         let mut headers = reqwest::header::HeaderMap::new();
         match authorization {
@@ -91,19 +95,28 @@ impl Client {
             }
         }
 
-        let mut client_builder = reqwest::Client::builder()
-            .default_headers(headers)
-            .connection_verbose(true);
+        if let Some(cert_file) = client_cert {
+            let mut buf = Vec::new();
+            File::open(cert_file)?.read_to_end(&mut buf)?;
+            let identity = Identity::from_pem(&buf)?;
+            client_builder = client_builder.identity(identity);
+        }
 
         // Set the server certificate if provided
         if let Some(cert_file) = server_cert {
             let mut buf = Vec::new();
             File::open(cert_file)?.read_to_end(&mut buf)?;
             let cert = reqwest::Certificate::from_pem(&buf)?;
-            client_builder = client_builder.add_root_certificate(cert);
+            client_builder = client_builder
+                .tls_built_in_root_certs(false)
+                .add_root_certificate(cert)
+                .https_only(true);
         }
 
-        let client = client_builder.build()?;
+        let client = client_builder
+            .default_headers(headers)
+            .connection_verbose(true)
+            .build()?;
         Ok(Self { base_url, client })
     }
 

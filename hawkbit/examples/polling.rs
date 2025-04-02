@@ -30,7 +30,14 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let auth = ClientAuthorization::TargetToken(opt.key);
-    let ddi = Client::new(&opt.url, &opt.tenant, &opt.controller, auth, None)?;
+    let ddi = Client::new(
+        &opt.url,
+        &opt.tenant,
+        &opt.controller,
+        auth,
+        None,
+        None,
+    )?;
 
     loop {
         let reply = ddi.poll().await?;
