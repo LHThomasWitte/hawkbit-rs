@@ -106,10 +106,19 @@ impl Client {
         if let Some(cert_file) = server_cert {
             let mut buf = Vec::new();
             File::open(cert_file)?.read_to_end(&mut buf)?;
-            let cert = reqwest::Certificate::from_pem(&buf)?;
+
+            if cert_file.ends_with(".crt") {
+                let certs = reqwest::Certificate::from_pem_bundle(&buf)?;
+                for cert in certs {
+                    client_builder = client_builder.add_root_certificate(cert);
+                }
+            } else {
+                let cert = reqwest::Certificate::from_pem(&buf)?;
+                client_builder = client_builder.add_root_certificate(cert);
+            }
+
             client_builder = client_builder
                 .tls_built_in_root_certs(false)
-                .add_root_certificate(cert)
                 .https_only(true);
         }
 
