@@ -47,7 +47,7 @@ pub enum Error {
     #[error("Failed to parse polling sleep")]
     InvalidSleep,
     /// IO error
-    #[error("Failed to download update")]
+    #[error("IO error {0}")]
     Io(#[from] std::io::Error),
     /// Invalid checksum
     #[cfg(feature = "hash-digest")]
