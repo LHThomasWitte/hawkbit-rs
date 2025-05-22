@@ -32,6 +32,7 @@ use httpmock::{
     Method::{GET, POST, PUT},
     Mock, MockExt, MockServer,
 };
+use httpmock::{Then, When};
 use serde_json::{json, Map, Value};
 
 use hawkbit::ddi::{
@@ -408,22 +409,26 @@ impl Target {
                     let file_name = artifact.file_name().unwrap().to_str().unwrap();
                     let path = format!("/download/{}", file_name);
 
-                    self.server.mock(|when, then| {
-                        let when = when.method(GET).path(path);
+                    if let Some(mock_fn) = &chunk.mock {
+                        self.server.mock(mock_fn);
+                    } else {
+                        self.server.mock(|when, then| {
+                            let when = when.method(GET).path(path);
 
-                        match &self.client_auth {
-                            ClientAuthorization::None => { /* do not require Authorization header */
-                            }
-                            ClientAuthorization::TargetToken(key) => {
-                                when.header("Authorization", format!("TargetToken {}", key));
-                            }
-                            ClientAuthorization::GatewayToken(key) => {
-                                when.header("Authorization", format!("GatewayToken {}", key));
-                            }
-                        };
+                            match &self.client_auth {
+                                ClientAuthorization::None => { /* do not require Authorization header */
+                                }
+                                ClientAuthorization::TargetToken(key) => {
+                                    when.header("Authorization", format!("TargetToken {}", key));
+                                }
+                                ClientAuthorization::GatewayToken(key) => {
+                                    when.header("Authorization", format!("GatewayToken {}", key));
+                                }
+                            };
 
-                        then.status(200).body_from_file(artifact.to_str().unwrap());
-                    });
+                            then.status(200).body_from_file(artifact.to_str().unwrap());
+                        });
+                    }
                 }
             }
 
@@ -848,6 +853,7 @@ impl DeploymentBuilder {
             version: version.to_string(),
             name: name.to_string(),
             artifacts,
+            mock: None,
             metadata: None,
         };
         builder.chunks.push(chunk);
@@ -900,6 +906,53 @@ impl DeploymentBuilder {
                     .map(|(key, value)| Metadata { key, value })
                     .collect(),
             ),
+            mock: None,
+        };
+        builder.chunks.push(chunk);
+
+        builder
+    }
+
+    /// Add a new software chunk to the deployment.
+    /// # Arguments
+    /// * `protocol`: The protocols over which chunks are downloadable
+    /// * `part`: the type of chunk, e.g. `firmware`, `bundle`, `app`
+    /// * `version`: software version of the chunk
+    /// * `name`: name of the chunk
+    /// * `artifacts`: a [`Vec`] of tuples containing:
+    ///   * the local path of the file;
+    ///   * the `md5sum` of the file;
+    ///   * the `sha1sum` of the file;
+    ///   * the `sha256sum` of the file.
+    /// * `mock`: a custom mock function that is used to create the mock
+    ///   for the download endpoint.
+    pub fn chunk_with_mock(
+        self,
+        protocol: ChunkProtocol,
+        part: &str,
+        version: &str,
+        name: &str,
+        artifacts: Vec<(PathBuf, &str, &str, &str)>,
+        mock: Box<dyn Fn(When, Then)>,
+    ) -> Self {
+        let mut builder = self;
+
+        let artifacts = artifacts
+            .into_iter()
+            .map(|(path, md5, sha1, sha256)| {
+                assert!(path.exists());
+                (path, md5.to_string(), sha1.to_string(), sha256.to_string())
+            })
+            .collect();
+
+        let chunk = Chunk {
+            protocol,
+            part: part.to_string(),
+            version: version.to_string(),
+            name: name.to_string(),
+            artifacts,
+            mock: Some(mock),
+            metadata: None,
         };
         builder.chunks.push(chunk);
 
@@ -964,6 +1017,7 @@ pub struct Chunk {
     name: String,
     artifacts: Vec<(PathBuf, String, String, String)>, // (path, md5, sha1, sha256)
     metadata: Option<Vec<Metadata>>,
+    mock: Option<Box<dyn Fn(When, Then)>>,
 }
 
 impl Chunk {
