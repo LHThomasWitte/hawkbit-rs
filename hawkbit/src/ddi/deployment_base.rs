@@ -3,14 +3,17 @@
 
 // Structures when querying deployment
 
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
 use futures::{prelude::*, TryStreamExt};
+use reqwest::header::RANGE;
 use reqwest::{Client, Response};
 use serde::de::{Deserializer, Error as _, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 
+use tokio::fs::OpenOptions;
 use tokio::{
     fs::{DirBuilder, File},
     io::AsyncWriteExt,
@@ -409,21 +412,65 @@ impl<'a> Artifact<'a> {
         Ok(resp)
     }
 
+    async fn download_response_range(&'a self, offset: u64) -> Result<Response, Error> {
+        let download = self
+            .artifact
+            .links
+            .https
+            .as_ref()
+            .or(self.artifact.links.http.as_ref())
+            .expect("Missing content link in for artifact");
+
+        let resp = self
+            .client
+            .get(download.content.to_string())
+            .header(RANGE, format!("bytes={offset}-"))
+            .send()
+            .await?;
+
+        resp.error_for_status_ref()?;
+        Ok(resp)
+    }
+
     /// Download the artifact file to the directory defined in `dir`.
     pub async fn download(&'a self, dir: &Path) -> Result<DownloadedArtifact, Error> {
-        let mut resp = self.download_response().await?;
-
         if !dir.exists() {
             DirBuilder::new().recursive(true).create(dir).await?;
         }
 
-        let mut file_name = dir.to_path_buf();
-        file_name.push(self.filename());
-        let mut dest = File::create(&file_name).await?;
+        // the file is first downloaded to a .part file in order to
+        // be able to resume the download in case of a disconnection.
+        // If a part file already exists, we try to resume the download (if supported by the server).
+        let mut file_name_part = dir.to_path_buf();
+        file_name_part.push(format!("{}.part", self.filename()));
+
+        let mut resp = if tokio::fs::try_exists(&file_name_part).await? {
+            // try to resume the download
+            let metadata = tokio::fs::metadata(&file_name_part).await?;
+            self.download_response_range(metadata.size()).await?
+        } else {
+            self.download_response().await?
+        };
+
+        let mut dest = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+            // the server supports range requests, we can resume the download
+            OpenOptions::new()
+                .append(true)
+                .open(&file_name_part)
+                .await?
+        } else {
+            File::create(&file_name_part).await?
+        };
 
         while let Some(chunk) = resp.chunk().await? {
             dest.write_all(&chunk).await?;
         }
+
+        let mut file_name = dir.to_path_buf();
+        file_name.push(self.filename());
+
+        // rename the file to remove the .part extension after the download is complete
+        tokio::fs::rename(&file_name_part, &file_name).await?;
 
         Ok(DownloadedArtifact::new(
             file_name,

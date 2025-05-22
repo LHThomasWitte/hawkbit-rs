@@ -10,6 +10,8 @@ use futures::prelude::*;
 use hawkbit::ddi::{
     Client, ConfirmationResponse, Error, Execution, Finished, MaintenanceWindow, Mode, Type,
 };
+use httpmock::Method::GET;
+use httpmock::{Then, When};
 use serde::Serialize;
 use serde_json::json;
 use tempdir::TempDir;
@@ -226,6 +228,92 @@ async fn deployment() {
         #[cfg(feature = "hash-sha256")]
         artifacts[0].check_sha256().await.expect("invalid sha256");
     }
+}
+
+#[tokio::test]
+async fn resume_download() {
+    init();
+
+    let server = ServerBuilder::default().build();
+    let (client, target) = add_target(&server, "Target1");
+
+    let test_artifact = artifact_path();
+
+    let artifacts = vec![(
+        test_artifact,
+        "5eb63bbbe01eeed093cb22bb8f5acdc3",
+        "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed",
+        "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+    )];
+
+    let deployment = DeploymentBuilder::new("10", Type::Forced, Type::Attempt)
+        .confirmation_required(false)
+        .maintenance_window(MaintenanceWindow::Available)
+        .chunk_with_mock(
+            ChunkProtocol::BOTH,
+            "app-both",
+            "1.0",
+            "some-chunk",
+            artifacts.clone(),
+            // Modify the artifact to be a partial download
+            Box::new(|when: When, then: Then| {
+                let when = when.method(GET).path("/download/test.txt");
+
+                when.header("Range", "bytes=5-");
+
+                then.status(206).body(" world");
+            }),
+        )
+        .build();
+
+    target.push_deployment(deployment);
+
+    let reply = client.poll().await.expect("poll failed");
+    assert!(reply.config_data_request().is_none());
+    assert_eq!(target.deployment_hits(), 0);
+
+    let update = reply.update().expect("missing update");
+    let update = update.fetch().await.expect("failed to fetch update info");
+    assert_eq!(target.deployment_hits(), 1);
+    assert_eq!(update.download_type(), Type::Forced);
+    assert_eq!(update.update_type(), Type::Attempt);
+    assert_eq!(
+        update.maintenance_window(),
+        Some(MaintenanceWindow::Available)
+    );
+
+    let mut chunks = update.chunks();
+    let chunk = chunks.next().unwrap();
+    assert_eq!(chunk.name(), "some-chunk");
+    assert_eq!(chunk.artifacts().count(), 1);
+
+    let art = chunk.artifacts().next().unwrap();
+    assert_eq!(art.filename(), "test.txt");
+    assert_eq!(art.size(), 11);
+
+    let out_dir = TempDir::new("test-hawkbitrs").expect("Failed to create temp dir");
+    let mut partial_download_file = out_dir.path().to_path_buf();
+    partial_download_file.push("some-chunk");
+    partial_download_file.push("test.txt.part");
+    // Write a wrong prefix to the part file to be able to test whether
+    // the download is resumed or simply overwritten.
+    tokio::fs::create_dir_all(partial_download_file.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(partial_download_file, b"HELLO")
+        .await
+        .unwrap();
+    let artifacts = chunk
+        .download(out_dir.path())
+        .await
+        .expect("Failed to download update");
+
+    // Check artifact
+    assert_eq!(artifacts.len(), 1);
+    let p = artifacts[0].file();
+    assert_eq!(p.file_name().unwrap(), "test.txt");
+    assert!(p.exists());
+    assert_eq!(tokio::fs::read_to_string(p).await.unwrap(), "HELLO world");
 }
 
 #[tokio::test]
