@@ -438,6 +438,29 @@ impl<'a> Artifact<'a> {
             DirBuilder::new().recursive(true).create(dir).await?;
         }
 
+        // Check if the file is already there (e.g. downloaded in a previous try)
+        // and seems to be the file we are expecting.
+        // In this case we can use this file directly and skip the download.
+        #[cfg(feature = "hash-sha256")]
+        {
+            let mut file_name = dir.to_path_buf();
+            file_name.push(self.filename());
+            if tokio::fs::try_exists(&file_name).await? {
+                // lets check if the files size matches our expectation
+                let metadata = tokio::fs::metadata(&file_name).await?;
+                if metadata.size() == self.artifact.size as u64 {
+                    // lets check if the file hash matches our expectation
+                    let artifact = DownloadedArtifact::new(file_name, self.artifact.hashes.clone());
+                    if artifact.check_sha256().await.is_ok() {
+                        // filename, size and hash are as expected.
+                        // so we we can assume that the existant file, is the file given in the deployment
+                        // so we can skip the download and use the file from cache
+                        return Ok(artifact);
+                    }
+                }
+            }
+        }
+
         // the file is first downloaded to a .part file in order to
         // be able to resume the download in case of a disconnection.
         // If a part file already exists, we try to resume the download (if supported by the server).
