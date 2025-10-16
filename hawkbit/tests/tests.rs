@@ -240,13 +240,13 @@ async fn send_deployment_feedback() {
         None,
         vec!["Downloading"],
     );
-    assert_eq!(mock.hits(), 0);
+    assert_eq!(mock.calls(), 0);
 
     update
         .send_feedback(Execution::Proceeding, Finished::None, vec!["Downloading"])
         .await
         .expect("Failed to send feedback");
-    assert_eq!(mock.hits(), 1);
+    assert_eq!(mock.calls(), 1);
     mock.delete();
 
     // Send feedback with progress
@@ -257,7 +257,7 @@ async fn send_deployment_feedback() {
         Some(json!({"awesome": true})),
         vec!["Done"],
     );
-    assert_eq!(mock.hits(), 0);
+    assert_eq!(mock.calls(), 0);
 
     #[derive(Serialize)]
     struct Progress {
@@ -274,7 +274,7 @@ async fn send_deployment_feedback() {
         )
         .await
         .expect("Failed to send feedback");
-    assert_eq!(mock.hits(), 1);
+    assert_eq!(mock.calls(), 1);
     mock.delete();
 }
 
@@ -489,12 +489,12 @@ async fn cancel_action() {
         Finished::None,
         vec!["Cancelling"],
     );
-    assert_eq!(mock.hits(), 0);
+    assert_eq!(mock.calls(), 0);
 
     cancel_action
         .send_feedback(Execution::Proceeding, Finished::None, vec!["Cancelling"])
         .await
         .expect("Failed to send feedback");
-    assert_eq!(mock.hits(), 1);
+    assert_eq!(mock.calls(), 1);
     mock.delete();
 }

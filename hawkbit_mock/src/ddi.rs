@@ -124,6 +124,7 @@ impl Target {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_poll(
         server: &MockServer,
         tenant: &str,
@@ -157,7 +158,7 @@ impl Target {
         let mock = server.mock(|when, then| {
             when.method(GET)
                 .path(format!("/{}/controller/v1/{}", tenant, name))
-                .header("Authorization", &format!("TargetToken {}", key));
+                .header("Authorization", format!("TargetToken {}", key));
 
             then.status(200)
                 .header("Content-Type", "application/json")
@@ -221,7 +222,7 @@ impl Target {
             when.method(PUT)
                 .path(format!("/DEFAULT/controller/v1/{}/configData", self.name))
                 .header("Content-Type", "application/json")
-                .header("Authorization", &format!("TargetToken {}", self.key))
+                .header("Authorization", format!("TargetToken {}", self.key))
                 .json_body(expected_config_data);
 
             then.status(200);
@@ -285,7 +286,7 @@ impl Target {
                     "/DEFAULT/controller/v1/{}/deploymentBase/{}",
                     self.name, deploy.id
                 ))
-                .header("Authorization", &format!("TargetToken {}", self.key));
+                .header("Authorization", format!("TargetToken {}", self.key));
 
             then.status(200)
                 .header("Content-Type", "application/json")
@@ -301,7 +302,7 @@ impl Target {
                 self.server.mock(|when, then| {
                     when.method(GET)
                         .path(path)
-                        .header("Authorization", &format!("TargetToken {}", self.key));
+                        .header("Authorization", format!("TargetToken {}", self.key));
 
                     then.status(200).body_from_file(artifact.to_str().unwrap());
                 });
@@ -380,7 +381,7 @@ impl Target {
                     "/{}/controller/v1/{}/deploymentBase/{}/feedback",
                     self.tenant, self.name, deployment_id
                 ))
-                .header("Authorization", &format!("TargetToken {}", self.key))
+                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
 
@@ -423,7 +424,7 @@ impl Target {
                     "/DEFAULT/controller/v1/{}/cancelAction/{}",
                     self.name, id
                 ))
-                .header("Authorization", &format!("TargetToken {}", self.key));
+                .header("Authorization", format!("TargetToken {}", self.key));
 
             then.status(200)
                 .header("Content-Type", "application/json")
@@ -489,7 +490,7 @@ impl Target {
                     "/{}/controller/v1/{}/cancelAction/{}/feedback",
                     self.tenant, self.name, cancel_id
                 ))
-                .header("Authorization", &format!("TargetToken {}", self.key))
+                .header("Authorization", format!("TargetToken {}", self.key))
                 .header("Content-Type", "application/json")
                 .json_body(expected);
 
@@ -500,14 +501,14 @@ impl Target {
     /// Return the number of times the poll API has been called by the client.
     pub fn poll_hits(&self) -> usize {
         let mock = Mock::new(self.poll.get(), &self.server);
-        mock.hits()
+        mock.calls()
     }
 
     /// Return the number of times the target configuration has been uploaded by the client.
     pub fn config_data_hits(&self) -> usize {
         self.config_data.borrow().as_ref().map_or(0, |m| {
             let mock = Mock::new(m.mock, &self.server);
-            mock.hits()
+            mock.calls()
         })
     }
 
@@ -515,7 +516,7 @@ impl Target {
     pub fn deployment_hits(&self) -> usize {
         self.deployment.borrow().as_ref().map_or(0, |m| {
             let mock = Mock::new(m.mock, &self.server);
-            mock.hits()
+            mock.calls()
         })
     }
 
@@ -523,7 +524,7 @@ impl Target {
     pub fn cancel_action_hits(&self) -> usize {
         self.cancel_action.borrow().as_ref().map_or(0, |m| {
             let mock = Mock::new(m.mock, &self.server);
-            mock.hits()
+            mock.calls()
         })
     }
 }

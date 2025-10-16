@@ -73,7 +73,7 @@ pub(crate) async fn send_feedback_internal<T: Serialize>(
     let details = details.iter().map(|m| m.to_string()).collect();
     let feedback = Feedback::new(id, execution, finished, progress, details);
 
-    let reply = client.post(&url.to_string()).json(&feedback).send().await?;
+    let reply = client.post(url.to_string()).json(&feedback).send().await?;
     reply.error_for_status()?;
 
     Ok(())

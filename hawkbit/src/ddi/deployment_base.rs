@@ -44,6 +44,7 @@ impl UpdatePreFetch {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Reply {
     id: String,
     deployment: Deployment,
@@ -108,6 +109,7 @@ struct ArtifactInternal {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct Hashes {
     sha1: String,
     md5: String,
@@ -190,6 +192,7 @@ impl<'de> Deserialize<'de> for Links {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Download {
     content: Link,
     md5sum: Option<Link>,
@@ -204,6 +207,7 @@ struct Links {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ActionHistory {
     status: String,
     #[serde(default)]
@@ -239,7 +243,7 @@ impl Update {
     }
 
     /// An iterator on all the software chunks of the update.
-    pub fn chunks(&self) -> impl Iterator<Item = Chunk> {
+    pub fn chunks(&self) -> impl Iterator<Item = Chunk<'_>> {
         let client = self.client.clone();
 
         self.info
@@ -336,7 +340,7 @@ impl<'a> Chunk<'a> {
     }
 
     /// An iterator on all the artifacts of the chunk.
-    pub fn artifacts(&self) -> impl Iterator<Item = Artifact> {
+    pub fn artifacts(&self) -> impl Iterator<Item = Artifact<'_>> {
         let client = self.client.clone();
 
         self.chunk
@@ -396,14 +400,10 @@ impl<'a> Artifact<'a> {
             .links
             .https
             .as_ref()
-            .or_else(|| self.artifact.links.http.as_ref())
+            .or(self.artifact.links.http.as_ref())
             .expect("Missing content link in for artifact");
 
-        let resp = self
-            .client
-            .get(&download.content.to_string())
-            .send()
-            .await?;
+        let resp = self.client.get(download.content.to_string()).send().await?;
 
         resp.error_for_status_ref()?;
         Ok(resp)
@@ -503,6 +503,7 @@ impl<'a> Artifact<'a> {
 }
 
 /// A downloaded file part of a [`Chunk`].
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct DownloadedArtifact {
     file: PathBuf,
@@ -648,7 +649,7 @@ cfg_if::cfg_if! {
     }
 }
 
-impl<'a> DownloadedArtifact {
+impl DownloadedArtifact {
     fn new(file: PathBuf, hashes: Hashes) -> Self {
         Self { file, hashes }
     }
