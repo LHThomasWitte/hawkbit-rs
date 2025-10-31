@@ -3,7 +3,6 @@
 
 // Structures when querying deployment
 
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
@@ -21,6 +20,20 @@ use tokio::{
 
 use crate::ddi::client::Error;
 use crate::ddi::common::{send_feedback_internal, Execution, Finished, Link};
+
+/// Get the file size from metadata in a platform independent way
+fn file_size(metadata: &std::fs::Metadata) -> u64 {
+    #[cfg(target_family = "unix")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.size()
+    }
+    #[cfg(target_family = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_size()
+    }
+}
 
 #[derive(Debug)]
 /// A pending update whose details have not been retrieved yet.
@@ -453,7 +466,7 @@ impl<'a> Artifact<'a> {
             if tokio::fs::try_exists(&file_name).await? {
                 // lets check if the files size matches our expectation
                 let metadata = tokio::fs::metadata(&file_name).await?;
-                if metadata.size() == self.artifact.size as u64 {
+                if file_size(&metadata) == self.artifact.size as u64 {
                     // lets check if the file hash matches our expectation
                     let artifact = DownloadedArtifact::new(file_name, self.artifact.hashes.clone());
                     if artifact.check_sha256().await.is_ok() {
@@ -475,7 +488,7 @@ impl<'a> Artifact<'a> {
         let mut resp = if tokio::fs::try_exists(&file_name_part).await? {
             // try to resume the download
             let metadata = tokio::fs::metadata(&file_name_part).await?;
-            self.download_response_range(metadata.size()).await?
+            self.download_response_range(file_size(&metadata)).await?
         } else {
             self.download_response().await?
         };
