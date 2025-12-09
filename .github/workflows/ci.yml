@@ -2,12 +2,17 @@ on: [push, pull_request]
 
 name: CI
 
+permissions:
+  contents: read
+  id-token: write
+  pages: write
+
 jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -24,7 +29,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -39,7 +44,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -55,7 +60,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -71,7 +76,7 @@ jobs:
     name: Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v6
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -87,8 +92,30 @@ jobs:
       - name: Install grcov
         run: cargo install grcov
       - name: Run grcov
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "hawkbit/examples/*" --ignore "*target*" -o coverage.lcov
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v1
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --ignore "hawkbit/examples/*" --ignore "*target*" -o pages/coverage
+      - name: Build rustdoc
+        run: |
+          cargo doc --target-dir pages/rustdoc --no-deps
+          rm -rf pages/rustdoc/debug
+          rm -f pages/rustdoc/doc/.lock
+      - name: Upload coverage to Pages
+        if: github.ref_name == 'main'
+        uses: actions/upload-pages-artifact@v3
         with:
-          files: ./coverage.lcov
+          path: ./pages/coverage
+
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: [coverage]
+    if: github.ref_name == 'main'
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
