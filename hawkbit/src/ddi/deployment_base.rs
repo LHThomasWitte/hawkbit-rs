@@ -243,7 +243,7 @@ impl Update {
         Self { client, info, url }
     }
 
-    /// the action id of the current update.
+    /// The action id of the current update.
     pub fn action_id(&self) -> &str {
         &self.info.id
     }

@@ -27,7 +27,7 @@ impl ConfirmationRequest {
         }
     }
 
-    /// confirm the confirmation request. The server should then proceed with the update and make a deploymentBase available.
+    /// Confirm the confirmation request. The server should then proceed with the update and make a deploymentBase available.
     pub async fn confirm(self) -> Result<(), Error> {
         let confirmation = Confirmation::new(ConfirmationResponse::Confirmed, 1);
 
@@ -51,7 +51,7 @@ impl ConfirmationRequest {
         Ok(())
     }
 
-    /// decline the confirmation request. This will not change the status on the server and the same confirmation request will be received on the next poll.
+    /// Decline the confirmation request. This will not change the status on the server and the same confirmation request will be received on the next poll.
     pub async fn decline(self) -> Result<(), Error> {
         let confirmation = Confirmation::new(ConfirmationResponse::Denied, -1);
 

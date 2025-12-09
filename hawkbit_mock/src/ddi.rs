@@ -42,11 +42,11 @@ use hawkbit::ddi::{
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 /// Authorization method that is required in requests by the target
 pub enum TargetAuthorization {
-    /// no authorization
+    /// No authorization
     None,
-    /// require a target token
+    /// Require a target token
     TargetToken,
-    /// require a gateway token
+    /// Require a gateway token
     GatewayToken,
 }
 
@@ -974,11 +974,11 @@ impl DeploymentBuilder {
 
 /// Protocol(s) over which chunks are served
 pub enum ChunkProtocol {
-    /// both http and https
+    /// Both http and https
     BOTH,
-    /// http only
+    /// Http only
     HTTP,
-    /// https only
+    /// Https only
     HTTPS,
 }
 
@@ -994,7 +994,7 @@ impl ChunkProtocol {
     }
 }
 
-/// key-value pair of metadata of a software set
+/// Key-value pair of metadata of a software set
 pub struct Metadata {
     key: String,
     value: String,
