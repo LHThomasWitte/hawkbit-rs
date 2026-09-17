@@ -63,6 +63,9 @@ impl Client {
     /// * `tenant`: the server tenant
     /// * `controller_id`: the id of the controller
     /// * `authorization`: the authorization method and secret authentification token of the controller
+    /// * `server_cert`: optional path to the server's certificate file
+    /// * `client_cert`: optional path to the client's certificate file
+    /// * `timeout`: optional timeout duration for the client
     pub fn new(
         url: &str,
         tenant: &str,
@@ -72,30 +75,7 @@ impl Client {
         client_cert: Option<&str>,
         timeout: Option<Duration>,
     ) -> Result<Self, Error> {
-        let host: Url = url.parse()?;
-        let path = format!("{}/controller/v1/{}", tenant, controller_id);
-        let base_url = host.join(&path)?;
-
         let mut client_builder = reqwest::Client::builder();
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        match authorization {
-            ClientAuthorization::TargetToken(key_token) => {
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    format!("TargetToken {}", &key_token).try_into()?,
-                );
-            }
-            ClientAuthorization::GatewayToken(key_token) => {
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    format!("GatewayToken {}", &key_token).try_into()?,
-                );
-            }
-            ClientAuthorization::None => {
-                // no authorization header needed
-            }
-        }
 
         if let Some(cert_file) = client_cert {
             let mut buf = Vec::new();
@@ -111,17 +91,13 @@ impl Client {
 
             if cert_file.ends_with(".crt") {
                 let certs = reqwest::Certificate::from_pem_bundle(&buf)?;
-                for cert in certs {
-                    client_builder = client_builder.add_root_certificate(cert);
-                }
+                client_builder = client_builder.tls_certs_only(certs);
             } else {
                 let cert = reqwest::Certificate::from_pem(&buf)?;
-                client_builder = client_builder.add_root_certificate(cert);
+                client_builder = client_builder.tls_certs_only(vec![cert]);
             }
 
-            client_builder = client_builder
-                .tls_built_in_root_certs(false)
-                .https_only(true);
+            client_builder = client_builder.https_only(true);
         }
 
         // Add timeouts to all connections
@@ -129,6 +105,47 @@ impl Client {
             client_builder = client_builder
                 .connect_timeout(timeout)
                 .read_timeout(timeout);
+        }
+
+        Self::new_from_client_builder(url, tenant, controller_id, authorization, client_builder)
+    }
+
+    /// Create a new DDI client from a pre-configured `reqwest::ClientBuilder`.
+    ///
+    /// # Arguments
+    /// * `url`: the URL of the hawkBit server, such as `http://my-server.com:8080`
+    /// * `tenant`: the server tenant
+    /// * `controller_id`: the id of the controller
+    /// * `authorization`: the authorization method and secret authentification token of the controller
+    /// * `client_builder`: a pre-configured `reqwest::ClientBuilder` instance
+    pub fn new_from_client_builder(
+        url: &str,
+        tenant: &str,
+        controller_id: &str,
+        authorization: ClientAuthorization,
+        client_builder: reqwest::ClientBuilder,
+    ) -> Result<Self, Error> {
+        let host: Url = url.parse()?;
+        let path = format!("{}/controller/v1/{}", tenant, controller_id);
+        let base_url = host.join(&path)?;
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        match authorization {
+            ClientAuthorization::TargetToken(key_token) => {
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("TargetToken {key_token}").try_into()?,
+                );
+            }
+            ClientAuthorization::GatewayToken(key_token) => {
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("GatewayToken {key_token}").try_into()?,
+                );
+            }
+            ClientAuthorization::None => {
+                // no authorization header needed
+            }
         }
 
         let client = client_builder
